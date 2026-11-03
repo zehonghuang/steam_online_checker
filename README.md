@@ -4,7 +4,7 @@
 
 ## 运行规则
 
-- 默认账号：https://steamcommunity.com/profiles/76561198406118342
+- 默认账号：https://steamcommunity.com/profiles/xxx
 - 在线状态默认每 60 秒查询一次；游戏时数独立每 300 秒查询一次，不依赖账号在线状态。
 - 默认时区为 Asia/Shanghai（北京时间，+08:00）。
 - 时间是程序观察到数据的时间，不是 Steam 提供的精确上下线/游玩时间。Steam 页面可能延迟更新、四舍五入显示时数；隐身或离线时也可能出现时数更新。
