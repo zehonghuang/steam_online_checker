@@ -148,6 +148,7 @@ curl "http://127.0.0.1/game-stats"
   "poll_interval_s":300,
   "last_success_at":"2026-11-03T21:10:00+08:00",
   "error":null,
+  "error_details":null,
   "games":[
     {"appid":"2663530","name":"POOLS","total_hours":"2.7","last_played_text":"目前正在游戏"}
   ]
@@ -157,8 +158,25 @@ curl "http://127.0.0.1/game-stats"
 - `total_hours`：精确十进制字符串，避免浮点比较误差。
 - `last_played_text`：页面文本，也可能是“最后运行日期：10 月 30 日”或 null，不推测精确时间。
 - `last_success_at`：最近成功抓取并处理数据的时间，进程首次成功抓取前为 null。
-- `error`：最近失败的错误摘要；成功后清空。失败保留上次成功快照，请结合时间判断是否过期。
-- 重启后恢复历史基准，但当前快照需等待重新抓取。游戏模块未启用返回 HTTP 503 和 `{"error":"game_stats_unavailable"}`。
+- `error`：兼容保留的错误摘要字符串；HTTP 错误有响应时包含明确状态码，不返回完整异常文本。
+- `error_details`：初始及成功后为 null；失败时包含 `type`（异常类型）、`http_status`（上游 HTTP 状态码，无响应或非 HTTP 异常为 null）、`failed_at`（配置时区的 ISO 8601 失败时间，默认北京时间 +08:00）、`retry_after`（响应的 Retry-After 头原文，缺失为 null）及 `stage`（fetch 抓取、parse 解析、persist 持久化）。Retry-After 仅供查看，不触发自动退避。
+- 成功同时清空 `error` 和 `error_details`；失败保留上次成功快照、`last_success_at` 及历史基准，请结合时间判断是否过期。日志中的 `game_stats_failed` 记录相同结构化错误详情，不输出请求头、Cookie、响应正文或完整异常文本。
+- 重启后恢复历史基准，但当前快照需等待重新抓取。游戏模块未启用返回 HTTP 503 和 `{"error":"game_stats_unavailable"}`；启用时即使上游抓取失败，此查询仍返回 HTTP 200，上游状态码见 `error_details.http_status`。
+
+例如，上游返回 HTTP 429 时的错误字段（其他字段仍为上次成功数据）：
+
+```json
+{
+  "error":"HTTPError HTTP 429: 游戏统计 fetch 失败",
+  "error_details":{
+    "type":"HTTPError",
+    "http_status":429,
+    "failed_at":"2026-11-03T21:15:00+08:00",
+    "retry_after":"120",
+    "stage":"fetch"
+  }
+}
+```
 
 ### 7. GET /game-stats/changes
 

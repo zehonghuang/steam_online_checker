@@ -14,6 +14,7 @@ import time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from bs4 import BeautifulSoup
+from requests.exceptions import HTTPError
 
 from .polling import PollingController
 from .steam_profile import fetch_profile_html
@@ -66,6 +67,7 @@ class GameStatsMonitor:
         self._games: list[dict[str, str | None]] = []
         self._last_success_at: str | None = None
         self._error: str | None = None
+        self._error_details: dict[str, object] | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._recover()
@@ -93,8 +95,12 @@ class GameStatsMonitor:
         with self._poll_lock:
             if not self.polling.begin("games"):
                 return
+            stage = "fetch"
             try:
-                games = parse_recent_games(fetch_profile_html(self.profile_url, timeout_s=self.timeout_s))
+                html = fetch_profile_html(self.profile_url, timeout_s=self.timeout_s)
+                stage = "parse"
+                games = parse_recent_games(html)
+                stage = "persist"
                 observed_at = datetime.now(self._tz).isoformat()
                 with self._lock:
                     events = []
@@ -124,12 +130,26 @@ class GameStatsMonitor:
                     self._games = games
                     self._last_success_at = observed_at
                     self._error = None
+                    self._error_details = None
             except Exception as exc:
-                # 不将请求头、Cookie 或响应正文写入日志/API。
-                error = f"{type(exc).__name__}: 游戏统计抓取、解析或持久化失败"
+                # 仅提取安全字段，不将完整异常、请求头、Cookie 或响应正文写入日志/API。
+                response = exc.response if isinstance(exc, HTTPError) else None
+                details = {
+                    "type": type(exc).__name__,
+                    "http_status": response.status_code if response is not None else None,
+                    "failed_at": datetime.now(self._tz).isoformat(),
+                    "retry_after": response.headers.get("Retry-After") if response is not None else None,
+                    "stage": stage,
+                }
+                http_info = f" HTTP {details['http_status']}" if details["http_status"] is not None else ""
+                error = f"{type(exc).__name__}{http_info}: 游戏统计 {stage} 失败"
                 with self._lock:
                     self._error = error
-                logging.getLogger("steam-online-checker").warning("game_stats_failed %s", error)
+                    self._error_details = details
+                logging.getLogger("steam-online-checker").warning(
+                    "game_stats_failed %s",
+                    json.dumps({"error": error, "error_details": details}, ensure_ascii=False),
+                )
             finally:
                 self.polling.finish("games")
 
@@ -140,6 +160,7 @@ class GameStatsMonitor:
                 "poll_interval_s": POLL_INTERVAL_S,
                 "last_success_at": self._last_success_at,
                 "error": self._error,
+                "error_details": deepcopy(self._error_details),
                 "games": deepcopy(self._games),
             }
 
