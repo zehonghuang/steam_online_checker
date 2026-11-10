@@ -1,6 +1,6 @@
 # Steam 在线状态与游戏时数监控
 
-抓取配置的 Steam 个人主页，记录上下线状态及主页最近游戏的总时数变化。请求使用中文 Accept-Language、Steam_Language=schinese Cookie 和 l=schinese 参数，不需要登录 Cookie。
+抓取配置的 Steam 个人主页，记录上下线状态及主页最近游戏的总时数、最后运行文本变化。请求使用中文 Accept-Language、Steam_Language=schinese Cookie 和 l=schinese 参数，不需要登录 Cookie。
 
 ## 运行规则
 
@@ -22,7 +22,7 @@
 | GET | /daily-status | 按天配对的上下线记录 |
 | GET | /late-offline | 晚于指定时间下线的日期 |
 | GET | /game-stats | 最近一次成功抓取的游戏数据 |
-| GET | /game-stats/changes | 游戏总时数变化历史数组 |
+| GET | /game-stats/changes | 游戏总时数或最后运行文本变化历史数组 |
 | GET | /readme | 本文 Markdown 原文 |
 | GET | /polling | 全部抓取的开关及在途状态 |
 | POST | /polling | 暂停/恢复全部抓取，需 Bearer 鉴权 |
@@ -180,7 +180,7 @@ curl "http://127.0.0.1/game-stats"
 
 ### 7. GET /game-stats/changes
 
-读取持久化日志，返回总时数变化数组，最新记录在前。
+读取持久化日志，返回总时数或最后运行文本变化数组，最新记录在前。
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -199,17 +199,19 @@ curl "http://127.0.0.1/game-stats/changes?limit=100"
     "name":"POOLS",
     "total_hours":"2.7",
     "last_played_text":"目前正在游戏",
-    "old_total_hours":"2.5",
+    "old_total_hours":"2.7",
+    "old_last_played_text":"最后运行日期：10 月 30 日",
     "observed_at":"2026-11-03T21:10:00+08:00"
   }
 ]
 ```
 
-- 每 5 分钟独立查询，在线/离线均检查；总时数变化才记录（增加或减少都记录）。
+- 每 5 分钟独立查询，在线/离线均检查；总时数或 `last_played_text` 任一变化就记录，同一次查询两者都变也只记录一条 change。
+- 总时数使用 Decimal 数值比较（增加或减少都记录，`2.7` 与 `2.70` 视为相同）；最后运行文本按值比较，包含与 null 之间的变化。
+- `old_total_hours`、`old_last_played_text` 是变化前的基准值；上例仅文本变化，时数不变。旧历史记录可能没有 `old_last_played_text` 字段。
 - `observed_at` 是发现变化的查询时间，不是实际游戏起止时间。
-- 首次发现游戏只写 baseline，不出现在变化数组中；没有变化返回 `[]`。
-- 仅最后运行文本变化不会新增记录；时数不变的轮询也不会保存历史点。
-- 游戏从主页消失不按零处理，不删除基准；重启从日志恢复基准，防止重复记录。
+- 首次发现游戏只写 baseline，不出现在变化数组中；没有变化历史返回 `[]`。两个字段均不变时不新增历史点。
+- 游戏从主页消失不按零处理，不删除基准；重启从日志恢复时数和文本基准（旧日志缺少 `last_played_text` 时按 null），防止无变化时重复记录；持久化失败不推进基准。
 - 游戏模块未启用返回 HTTP 503。
 
 ### 8. GET /readme

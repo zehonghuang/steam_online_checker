@@ -63,7 +63,7 @@ class GameStatsMonitor:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._poll_lock = threading.Lock()
-        self._baseline: dict[str, str] = {}
+        self._baseline: dict[str, tuple[str, str | None]] = {}
         self._games: list[dict[str, str | None]] = []
         self._last_success_at: str | None = None
         self._error: str | None = None
@@ -89,7 +89,7 @@ class GameStatsMonitor:
                     break
                 event = json.loads(line)
                 if event["profile_url"] == self.profile_url:
-                    self._baseline[event["appid"]] = event["total_hours"]
+                    self._baseline[event["appid"]] = (event["total_hours"], event.get("last_played_text"))
 
     def poll_once(self) -> None:
         with self._poll_lock:
@@ -106,12 +106,13 @@ class GameStatsMonitor:
                     events = []
                     for game in games:
                         old = self._baseline.get(game["appid"])
-                        if old is None or Decimal(old) != Decimal(game["total_hours"]):
+                        if old is None or Decimal(old[0]) != Decimal(game["total_hours"]) or old[1] != game["last_played_text"]:
                             events.append({
                                 "event": "baseline" if old is None else "change",
                                 "profile_url": self.profile_url,
                                 **game,
-                                "old_total_hours": old,
+                                "old_total_hours": old[0] if old is not None else None,
+                                "old_last_played_text": old[1] if old is not None else None,
                                 "observed_at": observed_at,
                             })
                     if events:
@@ -126,7 +127,7 @@ class GameStatsMonitor:
                                 stream.truncate(start)
                                 raise
                         for event in events:
-                            self._baseline[event["appid"]] = event["total_hours"]
+                            self._baseline[event["appid"]] = (event["total_hours"], event.get("last_played_text"))
                     self._games = games
                     self._last_success_at = observed_at
                     self._error = None
